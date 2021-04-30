@@ -1,2 +1,3 @@
 # BF
-Formal semantic of Brainfuck &amp; stuff
+
+Mechanized formalalization of the brainfuck programming language in the Coq proof assistant
