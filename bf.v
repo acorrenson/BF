@@ -118,6 +118,14 @@ Inductive exec : state -> bf -> state -> Prop :=
     exec s2 b2 s3 ->
     exec s1 (Seq b1 b2) s3.
 
+(* Inductive execs : state -> bf -> state -> Prop :=
+  | exec_one : forall s1 s2 p,
+    exec s1 p s2 -> execs s1 p s2
+  | exec_trans : forall s1 s2 s3 p,
+    exec s1 p s2 ->
+    exec s2 p s3 ->
+    execs s1 p s3. *)
+
 Notation "a -< b >-> c" := (exec a b c) (at level 80).
 Notation "a ';;' b" := (Seq a b) (at level 80).
 
@@ -164,3 +172,162 @@ Proof.
     rewrite <- incr_decr_comm, incr_decr_id.
     reflexivity.
 Qed.
+
+Inductive aexpr :=
+  | Cst : Z -> aexpr
+  | Add : aexpr -> aexpr -> aexpr
+  | Var : nat -> aexpr.
+
+Inductive imp :=
+  | Imp_Seq   : imp -> imp -> imp
+  | Imp_Aff   : nat -> aexpr -> imp
+  | Imp_While : aexpr -> imp -> imp.
+
+Fixpoint eval (a : aexpr) (s : store) : Z :=
+  match a with
+  | Cst v => v
+  | Add e1 e2 => eval e1 s + eval e2 s
+  | Var x => s x
+  end.
+
+
+Inductive imp_exec : store -> imp -> store -> Prop :=
+  | iexec_seq  : forall s1 s2 s3 p1 p2,
+    imp_exec s1 p1 s2 ->
+    imp_exec s2 p2 s3 ->
+    imp_exec s1 (Imp_Seq p1 p2) s3
+  | iexec_loop : forall s1 s2 s3 c p,
+    eval c s1 <> 0%Z ->
+    imp_exec s1 p s2 ->
+    imp_exec s2 (Imp_While c p) s3 ->
+    imp_exec s1 (Imp_While c p) s3
+  | iexec_loop_done : forall s c p,
+    eval c s = 0%Z ->
+    imp_exec s (Imp_While c p) s.
+
+Fixpoint compile_cst_pos (n : nat) : bf :=
+  match n with
+  | O => Incr ;; Decr
+  | S m =>
+    match m with
+    | O => Incr
+    | S m => Incr ;; compile_cst_pos m
+    end
+  end.
+
+Fixpoint compile_cst_neg (n : nat) : bf :=
+  match n with
+  | O => Incr ;; Decr
+  | S m =>
+    match m with
+    | O => Decr
+    | S m => Decr ;; compile_cst_neg m
+    end
+  end.
+
+  Search (Z -> nat).
+
+Definition compile_cst (v : Z) : bf :=
+  if (0 <=? v)%Z then compile_cst_pos (Z.abs_nat v) else compile_cst_neg (Z.abs_nat v).
+
+Compute (Z.neg (Pos.of_nat 10)).
+
+Definition Zneg (n : nat) : Z :=
+  match n with
+  | O => 0%Z
+  | _ => Z.neg (Pos.of_nat n)
+  end.
+
+Definition Zpos (n : nat) :=
+  match n with
+  | O => 0%Z
+  | _ => Z.pos (Pos.of_nat n)
+  end.
+
+Compute (Z.to_nat (Zpos 0)).
+
+Lemma Zpos_abs :
+  forall n, n = Z.abs_nat (Zpos n).
+Proof.
+  induction n; intros.
+  + cbn; reflexivity.
+  + cbn; destruct n; lia.
+Qed.
+
+Lemma Zneg_abs :
+  forall n, n = Z.abs_nat (Zneg n).
+Proof.
+  induction n; intros.
+  + cbn; reflexivity.
+  + cbn; destruct n; lia.
+Qed.
+
+Lemma compile_cst_pos_correct :
+  forall n s,
+  state0 -< compile_cst_pos n >-> s ->
+  eval (Cst (Zpos n)) (get_store state0) = get_val s.
+Proof.
+  intros.
+  induction n.
+  - inversion_clear H.
+    inversion_clear H0.
+    inversion_clear H1.
+    subst.
+    reflexivity.
+  - cbn.
+
+Lemma compile_cst_correct :
+  forall v s,
+  state0 -< compile_cst v >-> s ->
+  eval (Cst v) (get_store state0) = get_val s.
+Proof.
+  intros.
+  induction v.
+  - inversion_clear H.
+    inversion_clear H0.
+    inversion_clear H1.
+    subst.
+    rewrite <- incr_decr_comm, incr_decr_id.
+    reflexivity.
+  - cbn in H.
+    induction p; cbn in *.
+    + rewrite Pos2Nat.inj_xI in H.
+      cbn in H.
+
+
+    
+    Search (Pos.to_nat _~1).
+    + replace (Pos.to_nat p~1) with (S (Pos.to_nat p)) in H.
+
+  
+    induction (Pos.to_nat p) eqn:E.
+    + destruct p; inversion E.
+      cbn in *.
+      replace (Pos.to_nat p~0) with (Pos.to_nat p) in * by lia.
+      replace (Pos.to_nat p) with (0) in H by H1.
+      inversion_clear H.
+      inversion_clear H0.
+      inversion_clear H1.
+      lia.
+    + destruct p.
+  
+  cbn in *.
+    induction (Pos.to_nat p) eqn:E.
+    + inversion_clear H.
+      inversion_clear H0.
+      inversion_clear H1.
+      subst.
+      rewrite <- incr_decr_comm, incr_decr_id.
+      lia.
+    + admit. 
+  - admit.
+Admitted.
+
+
+
+
+
+Fixpoint compile_aexp (a : aexpr) : bf :=
+  match a with
+  | Cst v => 
+    .
