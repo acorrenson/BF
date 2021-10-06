@@ -209,20 +209,14 @@ Fixpoint compile_cst_pos (n : nat) : bf :=
   match n with
   | O => Incr ;; Decr
   | S m =>
-    match m with
-    | O => Incr
-    | S m => Incr ;; compile_cst_pos m
-    end
+    Incr ;; compile_cst_pos m
   end.
 
 Fixpoint compile_cst_neg (n : nat) : bf :=
   match n with
   | O => Incr ;; Decr
   | S m =>
-    match m with
-    | O => Decr
-    | S m => Decr ;; compile_cst_neg m
-    end
+    Decr ;; compile_cst_neg m
   end.
 
   Search (Z -> nat).
@@ -232,19 +226,9 @@ Definition compile_cst (v : Z) : bf :=
 
 Compute (Z.neg (Pos.of_nat 10)).
 
-Definition Zneg (n : nat) : Z :=
-  match n with
-  | O => 0%Z
-  | _ => Z.neg (Pos.of_nat n)
-  end.
+Definition Zneg (n : nat) : Z := - Z.of_nat n.
 
-Definition Zpos (n : nat) :=
-  match n with
-  | O => 0%Z
-  | _ => Z.pos (Pos.of_nat n)
-  end.
-
-Compute (Z.to_nat (Zpos 0)).
+Definition Zpos (n : nat) := Z.of_nat n.
 
 Lemma Zpos_abs :
   forall n, n = Z.abs_nat (Zpos n).
@@ -262,19 +246,112 @@ Proof.
   + cbn; destruct n; lia.
 Qed.
 
-Lemma compile_cst_pos_correct :
-  forall n s,
-  state0 -< compile_cst_pos n >-> s ->
-  eval (Cst (Zpos n)) (get_store state0) = get_val s.
+
+Lemma Zpos_S :
+  forall n, Zpos (S n) = (1 + Zpos n)%Z.
 Proof.
-  intros.
-  induction n.
+  induction n; auto.
+  rewrite IHn.
+  unfold Zpos.
+  repeat rewrite Nat2Z.inj_succ.
+  lia.
+Qed.
+
+Lemma Zneg_S :
+  forall n, Zneg (S n) = (Zneg n - 1)%Z.
+Proof.
+  induction n; auto.
+  rewrite IHn.
+  unfold Zneg.
+  repeat rewrite Nat2Z.inj_succ.
+  lia.
+Qed.
+
+Lemma eval_S :
+  forall z s, (eval (Cst (1 + z)) s = 1 + eval (Cst z) s)%Z.
+Proof.
+  reflexivity.
+Qed.
+
+Lemma eval_P :
+  forall z s, (eval (Cst (z - 1)) s = eval (Cst z) s - 1)%Z.
+Proof.
+  reflexivity.
+Qed.
+
+Lemma eval_cst :
+  forall v s s', eval (Cst v) s = eval (Cst v) s'.
+Proof.
+  reflexivity.
+Qed.
+
+Lemma get_val_incr :
+  forall s, (1 + get_val s)%Z = get_val (incr s).
+Proof.
+  intros [ ].
+  unfold incr.
+  unfold get_val, store_incr, store_update.
+  rewrite (Nat.eqb_refl).
+  lia.
+Qed.
+
+Lemma get_val_decr :
+  forall s, (get_val s - 1)%Z = get_val (decr s).
+Proof.
+  intros [ ].
+  unfold decr, get_val, store_decr, store_update.
+  rewrite (Nat.eqb_refl).
+  lia.
+Qed.
+
+
+Lemma compile_cst_pos_correct :
+  forall n s s',
+  s -< compile_cst_pos n >-> s' ->
+  (get_val s + eval (Cst (Zpos n)) (get_store s))%Z = get_val s'.
+Proof.
+  induction n; intros.
   - inversion_clear H.
     inversion_clear H0.
     inversion_clear H1.
     subst.
-    reflexivity.
-  - cbn.
+    rewrite <- Z.add_comm.
+    simpl.
+    now rewrite <- incr_decr_comm, incr_decr_id.
+  - cbn in H.
+    inversion_clear H.
+    inversion_clear H0.
+    subst.
+    pose proof (IHn _ _ H1).
+    rewrite Zpos_S, eval_S, <- H.
+    replace (get_val (incr s)) with (1 + get_val s)%Z by apply get_val_incr.
+    replace (eval (Cst (Zpos n)) (get_store (incr s))) with (eval (Cst (Zpos n)) (get_store s)) by reflexivity.
+    lia.
+Qed.
+
+Lemma compile_cst_neg_correct :
+  forall n s s',
+  s -< compile_cst_neg n >-> s' ->
+  (get_val s + eval (Cst (Zneg n)) (get_store s))%Z = get_val s'.
+Proof.
+  induction n; intros.
+  - inversion_clear H.
+    inversion_clear H0.
+    inversion_clear H1.
+    subst.
+    rewrite <- Z.add_comm.
+    simpl.
+    now rewrite <- incr_decr_comm, incr_decr_id.
+  - cbn in H.
+    inversion_clear H.
+    inversion_clear H0.
+    subst.
+    pose proof (IHn _ _ H1).
+    rewrite Zneg_S, eval_P, <- H.
+    replace (get_val (decr s)) with (get_val s - 1)%Z by apply get_val_decr.
+    replace (eval (Cst (Zneg n)) (get_store (decr s))) with (eval (Cst (Zneg n)) (get_store s)) by reflexivity.
+    lia.
+Qed.
 
 Lemma compile_cst_correct :
   forall v s,
@@ -282,52 +359,20 @@ Lemma compile_cst_correct :
   eval (Cst v) (get_store state0) = get_val s.
 Proof.
   intros.
-  induction v.
-  - inversion_clear H.
+  destruct v.
+  + inversion_clear H.
     inversion_clear H0.
     inversion_clear H1.
     subst.
-    rewrite <- incr_decr_comm, incr_decr_id.
     reflexivity.
-  - cbn in H.
-    induction p; cbn in *.
-    + rewrite Pos2Nat.inj_xI in H.
-      cbn in H.
-
-
-    
-    Search (Pos.to_nat _~1).
-    + replace (Pos.to_nat p~1) with (S (Pos.to_nat p)) in H.
-
-  
-    induction (Pos.to_nat p) eqn:E.
-    + destruct p; inversion E.
-      cbn in *.
-      replace (Pos.to_nat p~0) with (Pos.to_nat p) in * by lia.
-      replace (Pos.to_nat p) with (0) in H by H1.
-      inversion_clear H.
-      inversion_clear H0.
-      inversion_clear H1.
-      lia.
-    + destruct p.
-  
-  cbn in *.
-    induction (Pos.to_nat p) eqn:E.
-    + inversion_clear H.
-      inversion_clear H0.
-      inversion_clear H1.
-      subst.
-      rewrite <- incr_decr_comm, incr_decr_id.
-      lia.
-    + admit. 
-  - admit.
-Admitted.
-
-
-
-
-
-Fixpoint compile_aexp (a : aexpr) : bf :=
-  match a with
-  | Cst v => 
-    .
+  + cbn in H.
+    rewrite <- (compile_cst_pos_correct _ _ _ H).
+    simpl.
+    unfold Zpos.
+    now rewrite positive_nat_Z.
+  + cbn in H.
+    rewrite <- (compile_cst_neg_correct _ _ _ H).
+    simpl.
+    unfold Zneg.
+    now rewrite positive_nat_Z.
+Qed.
