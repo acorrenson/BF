@@ -1,23 +1,26 @@
 Require Import String Ascii List.
 Import ListNotations.
 
-Definition bind {A B} (m : option A) (f : A -> option B) :=
-  match m with
-  | None => None
-  | Some x => f x
-  end.
-
-Inductive AST :=
+(**
+  Abstract syntax of the Brainfuck
+  programing language
+*)
+Inductive instruction : Type :=
   | Incr
   | Decr
   | Left
   | Right
   | In
   | Out
-  | Loop : list AST -> AST.
+  | Loop : list instruction -> instruction.
 
+Definition bind {A B} (m : option A) (f : A -> option B) :=
+  match m with
+  | None => None
+  | Some x => f x
+  end.
 
-Fixpoint parse_aux (n : nat) (s : string) (b : bool) {struct n} : option (list AST * string) :=
+Fixpoint parse_aux (n : nat) (s : string) (b : bool) {struct n} : option (list instruction * string) :=
   match n with
   | 0 => None
   | S n =>
@@ -30,6 +33,10 @@ Fixpoint parse_aux (n : nat) (s : string) (b : bool) {struct n} : option (list A
       bind (parse_aux n next b) (fun '(p, next) => Some (Right :: p, next))
     | String "<"%char next =>
       bind (parse_aux n next b) (fun '(p, next) => Some (Left :: p, next))
+    | String "."%char next =>
+      bind (parse_aux n next b) (fun '(p, next) => Some (Out :: p, next))
+    | String ","%char next =>
+      bind (parse_aux n next b) (fun '(p, next) => Some (In :: p, next))
     | String "["%char next =>
       bind (parse_aux n next true) (fun '(p1, next1) =>
         bind (parse_aux n next1 b) (fun '(p2, next2) =>
@@ -45,10 +52,12 @@ Fixpoint parse_aux (n : nat) (s : string) (b : bool) {struct n} : option (list A
     end
   end.
 
-Definition parse (s : string) : option (list AST) :=
+Definition parse (s : string) : option (list instruction) :=
   match parse_aux (String.length s) s false with
   | Some (r, ""%string) => Some r
   | _ => None
   end.
 
 Compute (parse "[++[><<]]"%string).
+
+
