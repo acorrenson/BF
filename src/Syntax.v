@@ -64,7 +64,7 @@ Fixpoint parse_aux (n : nat) (s : string) (b : bool) {struct n} : option (progra
   Parse a string
 *)
 Definition parse_string (s : string) : option program :=
-  match parse_aux (String.length s) s false with
+  match parse_aux (1 + String.length s) s false with
   | Some (r, ""%string) => Some r
   | _ => None
   end.

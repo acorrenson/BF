@@ -1,16 +1,5 @@
-Require Import ZArith Lia.
-Require Import FunctionalExtensionality.
-
-(**
-  The brainfuck language
-*)
-Inductive bf :=
-  | Left  : bf
-  | Right : bf
-  | Incr  : bf
-  | Decr  : bf
-  | Seq   : bf -> bf -> bf
-  | Loop  : bf -> bf.
+Require Import ZArith Lia FunctionalExtensionality.
+Require Import Syntax.
 
 (**
   Right-infinite memory
@@ -96,38 +85,32 @@ Definition get_val (s : state) : Z :=
 (**
   Big-step operationnal semantic of Brainfuck
 *)
-Inductive exec : state -> bf -> state -> Prop :=
+Inductive exec_instr : state -> instruction -> state -> Prop :=
   | exec_left : forall s s',
-    get_dp s > 0 -> s' = left s -> exec s Left s'
+    get_dp s > 0 -> s' = left s -> exec_instr s Left s'
   | exec_right : forall s s',
-    s' = right s -> exec s Right s'
+    s' = right s -> exec_instr s Right s'
   | exec_incr  : forall s s',
-    s' = incr s -> exec s Incr s'
+    s' = incr s -> exec_instr s Incr s'
   | exec_decr  : forall s s',
-    s' = decr s -> exec s Decr s'
+    s' = decr s -> exec_instr s Decr s'
   | exec_loop  : forall b s s' s'',
     get_val s <> 0%Z ->
     exec s b s' ->
-    exec s' (Loop b) s'' ->
-    exec s (Loop b) s''
+    exec_instr s' (Loop b) s'' ->
+    exec_instr s (Loop b) s''
   | exec_loop_done : forall b s,
     get_val s = 0%Z ->
-    exec s (Loop b) s
-  | exec_seq : forall b1 b2 s1 s2 s3,
-    exec s1 b1 s2 ->
-    exec s2 b2 s3 ->
-    exec s1 (Seq b1 b2) s3.
+    exec_instr s (Loop b) s
 
-(* Inductive execs : state -> bf -> state -> Prop :=
-  | exec_one : forall s1 s2 p,
-    exec s1 p s2 -> execs s1 p s2
-  | exec_trans : forall s1 s2 s3 p,
-    exec s1 p s2 ->
-    exec s2 p s3 ->
-    execs s1 p s3. *)
+with exec : state -> program -> state -> Prop :=
+  | exec_done : forall s, exec s Done s
+  | exec_seq  : forall s s' s'' p p',
+    exec_instr s p s' ->
+    exec s' p' s'' ->
+    exec s (Seq p p') s''.
 
 Notation "a -< b >-> c" := (exec a b c) (at level 80).
-Notation "a ';;' b" := (Seq a b) (at level 80).
 
 Definition state0 : state := (0, fun x => 0%Z).
 
@@ -164,13 +147,15 @@ Proof.
 Qed.
 
 Lemma incr_decr_skip:
-  exec state0 (Incr ;; Decr) state0.
+  exec state0 "+-"%bf state0.
 Proof.
   eapply exec_seq.
   - apply exec_incr. reflexivity.
-  - apply exec_decr.
-    rewrite <- incr_decr_comm, incr_decr_id.
-    reflexivity.
+  - eapply exec_seq.
+    * apply exec_decr.
+      rewrite <- incr_decr_comm, incr_decr_id.
+      reflexivity.
+    * apply exec_done.
 Qed.
 
 Inductive aexpr :=
@@ -205,26 +190,22 @@ Inductive imp_exec : store -> imp -> store -> Prop :=
     eval c s = 0%Z ->
     imp_exec s (Imp_While c p) s.
 
-Fixpoint compile_cst_pos (n : nat) : bf :=
+Fixpoint compile_cst_pos (n : nat) : program :=
   match n with
-  | O => Incr ;; Decr
+  | O => Done
   | S m =>
-    Incr ;; compile_cst_pos m
+    Seq Incr (compile_cst_pos m)
   end.
 
-Fixpoint compile_cst_neg (n : nat) : bf :=
+Fixpoint compile_cst_neg (n : nat) : program :=
   match n with
-  | O => Incr ;; Decr
+  | O => Done
   | S m =>
-    Decr ;; compile_cst_neg m
+    Seq Decr (compile_cst_neg m)
   end.
 
-  Search (Z -> nat).
-
-Definition compile_cst (v : Z) : bf :=
+Definition compile_cst (v : Z) : program :=
   if (0 <=? v)%Z then compile_cst_pos (Z.abs_nat v) else compile_cst_neg (Z.abs_nat v).
-
-Compute (Z.neg (Pos.of_nat 10)).
 
 Definition Zneg (n : nat) : Z := - Z.of_nat n.
 
@@ -246,8 +227,7 @@ Proof.
   + cbn; destruct n; lia.
 Qed.
 
-
-Lemma Zpos_S :
+Lemma Zpos_succ :
   forall n, Zpos (S n) = (1 + Zpos n)%Z.
 Proof.
   induction n; auto.
@@ -257,7 +237,7 @@ Proof.
   lia.
 Qed.
 
-Lemma Zneg_S :
+Lemma Zneg_pred :
   forall n, Zneg (S n) = (Zneg n - 1)%Z.
 Proof.
   induction n; auto.
@@ -267,13 +247,13 @@ Proof.
   lia.
 Qed.
 
-Lemma eval_S :
+Lemma eval_succ :
   forall z s, (eval (Cst (1 + z)) s = 1 + eval (Cst z) s)%Z.
 Proof.
   reflexivity.
 Qed.
 
-Lemma eval_P :
+Lemma eval_pred :
   forall z s, (eval (Cst (z - 1)) s = eval (Cst z) s - 1)%Z.
 Proof.
   reflexivity.
@@ -304,7 +284,6 @@ Proof.
   lia.
 Qed.
 
-
 Lemma compile_cst_pos_correct :
   forall n s s',
   s -< compile_cst_pos n >-> s' ->
@@ -312,18 +291,14 @@ Lemma compile_cst_pos_correct :
 Proof.
   induction n; intros.
   - inversion_clear H.
-    inversion_clear H0.
-    inversion_clear H1.
-    subst.
     rewrite <- Z.add_comm.
-    simpl.
-    now rewrite <- incr_decr_comm, incr_decr_id.
+    reflexivity.
   - cbn in H.
     inversion_clear H.
     inversion_clear H0.
     subst.
     pose proof (IHn _ _ H1).
-    rewrite Zpos_S, eval_S, <- H.
+    rewrite Zpos_succ, eval_succ, <- H.
     replace (get_val (incr s)) with (1 + get_val s)%Z by apply get_val_incr.
     replace (eval (Cst (Zpos n)) (get_store (incr s))) with (eval (Cst (Zpos n)) (get_store s)) by reflexivity.
     lia.
@@ -336,18 +311,15 @@ Lemma compile_cst_neg_correct :
 Proof.
   induction n; intros.
   - inversion_clear H.
-    inversion_clear H0.
-    inversion_clear H1.
     subst.
     rewrite <- Z.add_comm.
-    simpl.
-    now rewrite <- incr_decr_comm, incr_decr_id.
+    reflexivity.
   - cbn in H.
     inversion_clear H.
     inversion_clear H0.
     subst.
     pose proof (IHn _ _ H1).
-    rewrite Zneg_S, eval_P, <- H.
+    rewrite Zneg_pred, eval_pred, <- H.
     replace (get_val (decr s)) with (get_val s - 1)%Z by apply get_val_decr.
     replace (eval (Cst (Zneg n)) (get_store (decr s))) with (eval (Cst (Zneg n)) (get_store s)) by reflexivity.
     lia.
@@ -360,11 +332,7 @@ Lemma compile_cst_correct :
 Proof.
   intros.
   destruct v.
-  + inversion_clear H.
-    inversion_clear H0.
-    inversion_clear H1.
-    subst.
-    reflexivity.
+  + now inversion_clear H.
   + cbn in H.
     rewrite <- (compile_cst_pos_correct _ _ _ H).
     simpl.
